@@ -58,14 +58,11 @@ import com.google.android.exoplayer2.Player.EVENT_POSITION_DISCONTINUITY
 import com.google.android.exoplayer2.Player.EVENT_TIMELINE_CHANGED
 import com.google.android.exoplayer2.SimpleExoPlayer
 import com.google.android.exoplayer2.audio.AudioAttributes
-import com.google.android.exoplayer2.ext.cast.CastPlayer
-import com.google.android.exoplayer2.ext.cast.SessionAvailabilityListener
 import com.google.android.exoplayer2.ext.mediasession.MediaSessionConnector
 import com.google.android.exoplayer2.ext.mediasession.TimelineQueueNavigator
 import com.google.android.exoplayer2.ui.PlayerNotificationManager
 import com.google.android.exoplayer2.util.Util
 import com.google.android.exoplayer2.util.Util.constrainValue
-import com.google.android.gms.cast.framework.CastContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -85,10 +82,6 @@ import kotlin.math.min
  * For more information on implementing a MediaBrowserService,
  * visit [https://developer.android.com/guide/topics/media-apps/audio-app/building-a-mediabrowserservice.html](https://developer.android.com/guide/topics/media-apps/audio-app/building-a-mediabrowserservice.html).
  *
- * This class also handles playback for Cast sessions.
- * When a Cast session is active, playback commands are passed to a
- * [CastPlayer](https://exoplayer.dev/doc/reference/com/google/android/exoplayer2/ext/cast/CastPlayer.html),
- * otherwise they are passed to an ExoPlayer for local playback.
  */
 open class MusicService : MediaBrowserServiceCompat() {
 
@@ -96,8 +89,7 @@ open class MusicService : MediaBrowserServiceCompat() {
     private lateinit var mediaSource: MusicSource
     private lateinit var packageValidator: PackageValidator
 
-    // The current player will either be an ExoPlayer (for local playback) or a CastPlayer (for
-    // remote playback through a Cast device).
+
     private lateinit var currentPlayer: Player
 
     private val serviceJob = SupervisorJob()
@@ -143,26 +135,7 @@ open class MusicService : MediaBrowserServiceCompat() {
         }
     }
 
-    /**
-     * If Cast is available, create a CastPlayer to handle communication with a Cast session.
-     */
-    private val castPlayer: CastPlayer? by lazy {
-        try {
-            val castContext = CastContext.getSharedInstance(this)
-            CastPlayer(castContext, CastMediaItemConverter()).apply {
-                setSessionAvailabilityListener(UampCastSessionAvailabilityListener())
-                addListener(playerListener)
-            }
-        } catch (e : Exception) {
-            // We wouldn't normally catch the generic `Exception` however
-            // calling `CastContext.getSharedInstance` can throw various exceptions, all of which
-            // indicate that Cast is unavailable.
-            // Related internal bug b/68009560.
-            Log.i(TAG, "Cast is not available on this device. " +
-                    "Exception thrown when attempting to obtain CastContext. " + e.message)
-            null
-        }
-    }
+
 
     @ExperimentalCoroutinesApi
     override fun onCreate() {
@@ -217,7 +190,7 @@ open class MusicService : MediaBrowserServiceCompat() {
 
         switchToPlayer(
             previousPlayer = null,
-            newPlayer = if (castPlayer?.isCastSessionAvailable == true) castPlayer!! else exoPlayer
+            newPlayer =  exoPlayer
         )
         notificationManager.showNotificationForPlayer(currentPlayer)
 
@@ -438,23 +411,7 @@ open class MusicService : MediaBrowserServiceCompat() {
         }
     }
 
-    private inner class UampCastSessionAvailabilityListener : SessionAvailabilityListener {
 
-        /**
-         * Called when a Cast session has started and the user wishes to control playback on a
-         * remote Cast receiver rather than play audio locally.
-         */
-        override fun onCastSessionAvailable() {
-            switchToPlayer(currentPlayer, castPlayer!!)
-        }
-
-        /**
-         * Called when a Cast session has ended and the user wishes to control playback locally.
-         */
-        override fun onCastSessionUnavailable() {
-            switchToPlayer(currentPlayer, exoPlayer)
-        }
-    }
 
     private inner class UampQueueNavigator(
         mediaSession: MediaSessionCompat
